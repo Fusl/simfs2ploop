@@ -29,7 +29,7 @@ set -e
 
 CTID=$(echo "$1" | egrep -o '^[0-9]+$')
 
-if [ "x$CTID" == x" ]; then
+if [ "x$CTID" == "x" ]; then
 	Usage: "$0 <CTID>"
 	exit 1
 fi
