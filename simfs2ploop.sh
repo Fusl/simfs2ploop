@@ -25,8 +25,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-TMPPREFIX=9999 # Change this if needed, temporary containers will be created using a CTID that is $TMPPREFIX$CTID (TMPPREFIX=9999 CTID=1234 -> 99991234)
-
+TMPPREFIX=9999 # Change this if needed, temporary containers will be created using a CTID that is $TMPCTID (TMPPREFIX=9999 CTID=1234 -> 99991234)
 set -e
 
 CTID=$(echo "$1" | egrep -o '^[0-9]+$')
@@ -36,43 +35,46 @@ if [ "x$CTID" == "x" ]; then
 	exit 1
 fi
 
+TMPCTID="$TMPPREFIX$CTID"
+
 tmpfile=$(mktemp -u)
 
-status=$(vzctl status "$CTID" | fgrep -q running; echo -n $?)
+status=$(vzctl status "$CTID" | fgrep -q running; echo -n "$?")
 
-cp -f "/etc/vz/conf/$CTID.conf" "/etc/vz/conf/ve-$TMPPREFIX$CTID.conf-sample"
-sed -i "s|/vz/root/$CTID|/vz/root/$TMPPREFIX$CTID|" "/etc/vz/conf/ve-$TMPPREFIX$CTID.conf-sample"
-sed -i "s|/vz/private/$CTID|/vz/private/$TMPPREFIX$CTID|" "/etc/vz/conf/ve-$TMPPREFIX$CTID.conf-sample"
+cp -f "/etc/vz/conf/$CTID.conf" "/etc/vz/conf/ve-$TMPCTID.conf-sample"
+sed -i "s|/vz/root/$CTID|/vz/root/$TMPCTID|" "/etc/vz/conf/ve-$TMPCTID.conf-sample"
+sed -i "s|/vz/private/$CTID|/vz/private/$TMPCTID|" "/etc/vz/conf/ve-$TMPCTID.conf-sample"
 # todo: find out if we need that or if the automatic detection of vzctl's ploop creation is enough for us,
 #  maybe create a function that reads the current size and then limits it accordingly?
 #  anyway, for now we just stick with removing the diskinodes information, if you need it you can always comment out this line so it will be passed to ploop
-sed -i "s|^DISKINODES=|# DISKINODES=|" "/etc/vz/conf/ve-$TMPPREFIX$CTID.conf-sample"
-vzctl create "$TMPPREFIX$CTID" --ostemplate centos-6-x86_64 --config "$TMPPREFIX$CTID" --layout ploop
-vzctl mount "$TMPPREFIX$CTID"
+sed -i "s|^DISKINODES=|# DISKINODES=|" "/etc/vz/conf/ve-$TMPCTID.conf-sample"
+vzctl create "$TMPCTID" --ostemplate centos-6-x86_64 --config "$TMPCTID" --layout ploop
+vzctl mount "$TMPCTID"
 vzctl mount "$CTID" || true
-find "/vz/root/$TMPPREFIX$CTID/" -mindepth 1 -delete
-rsync -axHAXS                 --progress --stats --numeric-ids          "/vz/root/$CTID/" "/vz/root/$TMPPREFIX$CTID/" || true
-rsync -axHAXS --append-verify --progress --stats --numeric-ids --delete "/vz/root/$CTID/" "/vz/root/$TMPPREFIX$CTID/" || true
+find "/vz/root/$TMPCTID/" -mindepth 1 -delete
+rsync -axHAXS                 --progress --stats --numeric-ids          "/vz/root/$CTID/" "/vz/root/$TMPCTID/" || true
+rsync -axHAXS --append-verify --progress --stats --numeric-ids --delete "/vz/root/$CTID/" "/vz/root/$TMPCTID/" || true
 vzctl chkpnt "$CTID" --dumpfile "$tmpfile" || true
 vzctl stop "$CTID" || true
 vzctl stop "$CTID" --fast || true
 vzctl set "$CTID" --disabled=yes --save
 vzctl mount "$CTID" || true
-rsync -axHAXS --append-verify --progress --stats --numeric-ids --delete "/vz/root/$CTID/" "/vz/root/$TMPPREFIX$CTID/" && (
-        # only run this part of the code if the last rsync exited without error so we can make sure that nothing went wrong
-        vzctl umount "$CTID"
-        vzctl umount "$TMPPREFIX$CTID"
-        mv "/vz/private/$CTID" "/vz/private/$CTID.simfs"
-        mv "/vz/private/$TMPPREFIX$CTID" "/vz/private/$CTID"
+rsync -axHAXS --append-verify --progress --stats --numeric-ids --delete "/vz/root/$CTID/" "/vz/root/$TMPCTID/" && (
+	# only run this part of the code if the last rsync exited without error so we can make sure that nothing went wrong
+	vzctl umount "$CTID"
+	vzctl umount "$TMPCTID"
+	mv "/vz/private/$CTID" "/vz/private/$CTID.simfs"
+	mv "/vz/private/$TMPCTID" "/vz/private/$CTID"
+	sed -i -r 's/^LAYOUT=(")?simfs(")?($| )/LAYOUT=\1ploop\2\3/' "/vz/private/$CTID"
 ) || (
-        # just umount the container without moving the directories since something went wrong at the last rsync
-		#  (e.g. source file system too large, files changed or vanished while copying, etc. -- latter should never happen because the container is stopped)
-        vzctl umount "$CTID"
-        vzctl umount "$TMPPREFIX$CTID"
+	# just umount the container without moving the directories since something went wrong at the last rsync
+	# (e.g. source file system too large, files changed or vanished while copying, etc. -- latter should never happen because the container is stopped/suspended)
+	vzctl umount "$CTID"
+	vzctl umount "$TMPCTID"
 )
 vzctl set "$CTID" --disabled=no --save
 if [ "$status" == "0" ]; then
-        test -f "$tmpfile" && vzctl restore "$CTID" --dumpfile "$tmpfile" || vzctl start "$CTID"
+	test -f "$tmpfile" && vzctl restore "$CTID" --dumpfile "$tmpfile" || vzctl start "$CTID"
 fi
-vzctl destroy "$TMPPREFIX$CTID"
-rm -f "/etc/vz/conf/ve-$TMPPREFIX$CTID.conf-sample"
+vzctl destroy "$TMPCTID"
+rm -f "/etc/vz/conf/ve-$TMPCTID.conf-sample"
