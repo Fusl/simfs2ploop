@@ -65,7 +65,7 @@ rsync -axHAXS --append-verify --progress --stats --numeric-ids --delete "/vz/roo
 	vzctl umount "$TMPCTID"
 	mv "/vz/private/$CTID" "/vz/private/$CTID.simfs"
 	mv "/vz/private/$TMPCTID" "/vz/private/$CTID"
-	sed -i -r 's/^LAYOUT=(")?simfs(")?($| )/LAYOUT=\1ploop\2\3/' "/vz/private/$CTID"
+	sed -i -r 's/^LAYOUT=(")?simfs(")?($| )/LAYOUT=\1ploop\2\3/' "/etc/vz/conf/$CTID.conf"
 ) || (
 	# just umount the container without moving the directories since something went wrong at the last rsync
 	# (e.g. source file system too large, files changed or vanished while copying, etc. -- latter should never happen because the container is stopped/suspended)
